@@ -7,5 +7,5 @@ import (
 )
 
 func main() {
-	pixelgl.Run(scenes.RunScene)
+	pixelgl.Run(scenes.Run)
 }

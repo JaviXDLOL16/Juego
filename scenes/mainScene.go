@@ -1,16 +1,19 @@
 package scenes
 
 import (
+	"fmt"
 	"image"
 	"math"
 	"os"
 	"time"
 
-	"main/models"
-	"main/views"
+	_ "image/png"
 
 	"github.com/faiface/pixel"
+	"github.com/faiface/pixel/imdraw"
 	"github.com/faiface/pixel/pixelgl"
+	"github.com/faiface/pixel/text"
+	"golang.org/x/image/colornames"
 )
 
 type GameState int
@@ -29,9 +32,16 @@ var gameState GameState
 var ballSpeed float64
 var isPaused bool
 var buttons map[string]pixel.Rect
-var playerPic, backgroundPic, ballPic *models.AnimatedSprite
+var playerPic, backgroundPic, ballPic *AnimatedSprite
 
-func RunScene() {
+type AnimatedSprite struct {
+	pictures     []*pixel.Sprite
+	delay        []time.Duration
+	currentFrame int
+	elapsedTime  time.Duration
+}
+
+func Run() {
 	winCfg := pixelgl.WindowConfig{
 		Title:  "Juego de Esquivar",
 		Bounds: pixel.R(0, 0, 800, 600),
@@ -51,11 +61,12 @@ func RunScene() {
 
 	for !win.Closed() {
 		handleInput(win)
-		views.DrawBackground(win, backgroundPic)
-		views.DrawPlayer(win, playerPic)
-		views.DrawBall(win, ballPic)
-		views.DrawUI(win)
-		views.DrawButtons(win)
+
+		drawBackground(win)
+		drawPlayer(win)
+		drawBall(win)
+		drawUI(win)
+		drawButtons(win)
 		win.Update()
 		time.Sleep(time.Millisecond * 16)
 	}
@@ -175,7 +186,7 @@ func loadPictures() {
 	backgroundPic = loadPicture("./assets/HEscenarioM.png")
 }
 
-func loadPicture(path string) *models.AnimatedSprite {
+func loadPicture(path string) *AnimatedSprite {
 	file, err := os.Open(path)
 	if err != nil {
 		panic(err)
@@ -192,8 +203,121 @@ func loadPicture(path string) *models.AnimatedSprite {
 	sprite := pixel.NewSprite(pixel.PictureDataFromImage(img), pixelBounds)
 
 	// Devuelve un AnimatedSprite con solo un frame para imágenes estáticas
-	return &models.AnimatedSprite{
+	return &AnimatedSprite{
 		pictures: []*pixel.Sprite{sprite},
 		delay:    []time.Duration{0},
+	}
+}
+
+func drawBall(win *pixelgl.Window) {
+	// 1. Dibuja el hitbox
+	imd := imdraw.New(nil)
+	//imd.Color = colornames.Black o cualquier otro color que desees -> ver hitbox
+	imd.Push(ballPos)
+	imd.Circle(40, 0) // Asume que el radio es 50, ajústalo como necesites
+	imd.Draw(win)
+
+	// 2. Dibuja el sprite
+	ballPic.pictures[ballPic.currentFrame].Draw(win, pixel.IM.Scaled(ballPos, 1).Moved(ballPos))
+	ballPic.elapsedTime += time.Millisecond * 16
+	if ballPic.elapsedTime >= ballPic.delay[ballPic.currentFrame] {
+		ballPic.elapsedTime = 0
+		ballPic.currentFrame = (ballPic.currentFrame + 1) % len(ballPic.pictures)
+	}
+}
+
+func drawPlayer(win *pixelgl.Window) {
+	playerPic.pictures[0].Draw(win, pixel.IM.Scaled(playerPos, 1).Moved(playerPos))
+}
+
+func drawBackground(win *pixelgl.Window) {
+	backgroundPic.pictures[0].Draw(win, pixel.IM.Scaled(pixel.V(400, 300), 1).Moved(pixel.V(400, 300)))
+}
+
+func drawUI(win *pixelgl.Window) {
+	if gameState == GameStatePlaying {
+		counterText := fmt.Sprintf("Tiempo restante: %d", counter)
+		txt := text.New(pixel.V(340, win.Bounds().H()-50), text.Atlas7x13)
+		txt.Color = colornames.White
+		txt.Clear()
+		txt.WriteString(counterText)
+		txt.Draw(win, pixel.IM)
+	}
+
+	if isPaused {
+		pauseText := "Juego Pausado. Presiona [P] para continuar."
+		txt := text.New(pixel.V(250, win.Bounds().H()-150), text.Atlas7x13)
+		txt.Color = colornames.White
+		txt.Clear()
+		txt.WriteString(pauseText)
+		txt.Draw(win, pixel.IM)
+	}
+}
+
+func drawButtons(win *pixelgl.Window) {
+	imd := imdraw.New(nil)
+	txt := text.New(pixel.V(0, 0), text.Atlas7x13)
+	txt.Color = colornames.White
+
+	if gameState == GameStateMenu {
+		imd.Color = colornames.Black
+		btnRect := buttons["start"]
+		imd.Push(btnRect.Min, btnRect.Max)
+		imd.Rectangle(0)
+
+		btnRect = buttons["exit"]
+		imd.Push(btnRect.Min, btnRect.Max)
+		imd.Rectangle(0)
+	}
+
+	if gameState == GameStateLost || gameState == GameStateWon {
+		imd.Color = colornames.Black
+		btnRect := buttons["restart"]
+		imd.Push(btnRect.Min, btnRect.Max)
+		imd.Rectangle(0)
+
+		btnRect = buttons["exit"]
+		imd.Push(btnRect.Min, btnRect.Max)
+		imd.Rectangle(0)
+	}
+
+	imd.Draw(win)
+
+	if gameState == GameStateMenu {
+		txt.Dot = pixel.V(340, 495)
+		txt.WriteString("Iniciar")
+		txt.Draw(win, pixel.IM)
+
+		txt.Dot = pixel.V(340, 415)
+		txt.WriteString("Salir")
+		txt.Draw(win, pixel.IM)
+	}
+
+	if gameState == GameStateLost {
+		txt.Dot = pixel.V(340, 495)
+		txt.WriteString("Reiniciar")
+		txt.Draw(win, pixel.IM)
+
+		txt.Dot = pixel.V(340, 415)
+		txt.WriteString("Salir")
+		txt.Draw(win, pixel.IM)
+
+		txt.Dot = pixel.V(360, win.Bounds().H()-50)
+		txt.WriteString("Has perdido!")
+		txt.Draw(win, pixel.IM)
+	}
+
+	if gameState == GameStateWon {
+		txt.Dot = pixel.V(340, 495)
+		txt.WriteString("Reiniciar")
+		txt.Draw(win, pixel.IM)
+
+		txt.Dot = pixel.V(340, 415)
+		txt.WriteString("Salir")
+		txt.Draw(win, pixel.IM)
+
+		txt.Dot = pixel.V(360, win.Bounds().H()-50)
+		txt.WriteString("Has ganado!")
+		txt.Draw(win, pixel.IM)
 	}
 }
